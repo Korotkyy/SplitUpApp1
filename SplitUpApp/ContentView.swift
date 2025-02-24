@@ -57,6 +57,7 @@ struct ContentView: View {
     @State private var savedProjects: [SavedProject] = []
     @State private var showingSecondView = false
     @AppStorage("savedProjects") private var savedProjectsData: Data = Data()
+    @State private var keyboardHeight: CGFloat = 0
     
     private var totalSquares: Int {
         goals.reduce(0) { $0 + (Int($1.totalNumber) ?? 0) }
@@ -70,25 +71,27 @@ struct ContentView: View {
         let columns = Int(ceil(sqrt))
         let rows = Int(ceil(Double(total) / Double(columns)))
         
+        print("Grid dimensions: \(rows) rows x \(columns) columns for \(total) squares") // Добавим для отладки
+        
         return (rows, columns)
     }
     
     private func initializeCells() {
         let total = totalSquares
-        
-        // Сохраняем текущие закрашенные клетки
-        let existingColoredCells = cells.filter { $0.isColored }
+        cells = []  // Очищаем массив перед инициализацией
         
         // Создаем новую сетку
-        cells = Array(0..<total).map { position in
-            // Проверяем, была ли эта клетка закрашена раньше
-            if existingColoredCells.contains(where: { $0.position == position }) {
-                return Cell(isColored: true, position: position)
-            }
-            return Cell(isColored: false, position: position)
+        for position in 0..<total {
+            cells.append(Cell(isColored: false, position: position))
         }
         
-        coloredCount = cells.filter { $0.isColored }.count
+        coloredCount = 0  // Сбрасываем счетчик закрашенных клеток
+        
+        // Принудительно обновляем отображение
+        showGrid = false
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            showGrid = true
+        }
     }
     
     private func colorRandomCells(count: Int, goalId: UUID, markAsCompleted: Bool = false) {
@@ -198,227 +201,8 @@ struct ContentView: View {
                         Color.brown.opacity(0.1)
                     )
                 
-                VStack(spacing: 10) {
-                    if let image = selectedImage {
-                        HStack(spacing: 20) {
-                            Button(action: {
-                                saveProject()
-                            }) {
-                                Text("Save")
-                                    .foregroundColor(.white)
-                                    .frame(width: UIScreen.main.bounds.width * 0.25, height: 40)
-                                    .background(Color.green)
-                                    .cornerRadius(8)
-                            }
-                            
-                            Button(action: {
-                                selectedImage = nil
-                                selectedItem = nil
-                                goals.removeAll()
-                                showGrid = false
-                                savedState = nil
-                                cells.removeAll()
-                                coloredCount = 0
-                                clearInputs()
-                            }) {
-                                Text("Delete")
-                                    .foregroundColor(.white)
-                                    .frame(width: 100, height: 40)
-                                    .background(Color.red)
-                                    .cornerRadius(8)
-                            }
-                        }
-                        .padding(.vertical, 5)
-                        .padding(.top, 1)
-                        
-                        // Добавляем поле для названия проекта
-                        TextField("Project name", text: $projectName)
-                            .textFieldStyle(RoundedBorderTextFieldStyle())
-                            .padding(.horizontal)
-                            .padding(.vertical, 5)
-                            .multilineTextAlignment(.center)
-                        
-                        ZStack {
-                            GeometryReader { geometry in
-                                ZStack {
-                                    if let image = selectedImage {
-                                        image
-                                            .resizable()
-                                            .scaledToFill()
-                                            .frame(width: geometry.size.width, height: geometry.size.height)
-                                            .clipped()
-                                            .grayscale(1.0)
-                                    }
-                                    
-                                    if showGrid && selectedImage != nil {
-                                        let dimensions = calculateGridDimensions()
-                                        let width = geometry.size.width / CGFloat(dimensions.columns)
-                                        let height = geometry.size.height / CGFloat(dimensions.rows)
-                                        
-                                        // Цветные клетки поверх черно-белого изображения
-                                        ForEach(0..<cells.count, id: \.self) { index in
-                                            let row = index / dimensions.columns
-                                            let col = index % dimensions.columns
-                                            if cells[index].isColored {
-                                                if let image = selectedImage {
-                                                    image
-                                                        .resizable()
-                                                        .scaledToFill()
-                                                        .frame(width: geometry.size.width, height: geometry.size.height)
-                                                        .clipped()
-                                                        .mask(
-                                                            Rectangle()
-                                                                .frame(width: width, height: height)
-                                                                .position(
-                                                                    x: width * CGFloat(col) + width/2,
-                                                                    y: height * CGFloat(row) + height/2
-                                                                )
-                                                        )
-                                                }
-                                            }
-                                        }
-                                        
-                                        // Белая сетка только для незакрашенных клеток
-                                        ForEach(0..<cells.count, id: \.self) { index in
-                                            let row = index / dimensions.columns
-                                            let col = index % dimensions.columns
-                                            if !cells[index].isColored {
-                                                Rectangle()
-                                                    .stroke(Color.white, lineWidth: 1)
-                                                    .frame(width: width, height: height)
-                                                    .position(
-                                                        x: width * CGFloat(col) + width/2,
-                                                        y: height * CGFloat(row) + height/2
-                                                    )
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        .frame(width: UIScreen.main.bounds.width * 0.95)
-                        .frame(height: UIScreen.main.bounds.height * 0.4)
-                        .padding(.horizontal)
-                        
-                        // Добавляем отображение общей суммы
-                        HStack(spacing: 20) {
-                            Text("Total: \(goals.reduce(0) { $0 + (Int($1.totalNumber) ?? 0) })")
-                                .font(.headline)
-                                .foregroundColor(.white)
-                            
-                            Text("Remaining: \(goals.reduce(0) { $0 + (Int($1.remainingNumber) ?? 0) })")
-                                .font(.headline)
-                                .foregroundColor(.white)
-                        }
-                        .padding(.vertical, 1)
-                        
-                        VStack(spacing: 8) {
-                            HStack(spacing: 20) {
-                                Button(action: {
-                                    isEditing ? updateGoal() : addGoal()
-                                    showInputs = true
-                                }) {
-                                    Text(isEditing ? "Update" : "Add")
-                                        .foregroundColor(.white)
-                                        .frame(width: 100, height: 35)
-                                        .background(Color.blue)
-                                        .cornerRadius(8)
-                                }
-                                
-                                Button(action: {
-                                    showGrid = true
-                                    showInputs = false
-                                    initializeCells()
-                                }) {
-                                    HStack {
-                                        Image(systemName: "grid")
-                                            .font(.system(size: 20))
-                                        Text("Divide Image")
-                                            .font(.subheadline)
-                                    }
-                                    .foregroundColor(.white)
-                                    .frame(width: 140, height: 35)
-                                    .background(Color.blue)
-                                    .cornerRadius(8)
-                                }
-                            }
-                            
-                            if showInputs {
-                                TextField("Enter text", text: $inputText)
-                                    .textFieldStyle(RoundedBorderTextFieldStyle())
-                                    .padding(.horizontal)
-                                
-                                TextField("Enter numbr", text: $inputNumber)
-                                    .textFieldStyle(RoundedBorderTextFieldStyle())
-                                    .keyboardType(.numberPad)
-                                    .padding(.horizontal)
-                            }
-                            
-                            Picker("Goals", selection: $selectedGoalIndex) {
-                                ForEach(Array(goals.enumerated()), id: \.element.id) { index, goal in
-                                    HStack {
-                                        Image(systemName: "circle.fill")
-                                            .font(.system(size: 8))
-                                        Text("\(goal.text)")
-                                            .font(.headline)
-                                            .strikethrough(goal.isCompleted)
-                                        Text(goal.progress)
-                                            .font(.headline)
-                                            .foregroundColor(.gray)
-                                        if !goal.isCompleted {
-                                            Image(systemName: "pencil")
-                                                .foregroundColor(.blue)
-                                        }
-                                    }
-                                    .opacity(goal.isCompleted ? 0.6 : 1.0)
-                                    .tag(index)
-                                }
-                            }
-                            .pickerStyle(.wheel)
-                            .frame(height: UIScreen.main.bounds.height * 0.08)
-                            .background(Color.white.opacity(0.5))
-                            .cornerRadius(10)
-                            .padding(.horizontal)
-                            
-                            if let selectedGoal = goals[safe: selectedGoalIndex],
-                               !selectedGoal.isCompleted {
-                                HStack(spacing: 15) {
-                                    TextField("Enter completed amount", text: $partialCompletion)
-                                        .textFieldStyle(RoundedBorderTextFieldStyle())
-                                        .keyboardType(.numberPad)
-                                        .padding(.horizontal)
-                                        .frame(width: UIScreen.main.bounds.width * 0.35)
-                                    
-                                    Button("Complete") {
-                                        if let partialAmount = Int(partialCompletion),
-                                           let remainingAmount = Int(selectedGoal.remainingNumber),
-                                           partialAmount <= remainingAmount {
-                                            
-                                            let newRemaining = remainingAmount - partialAmount
-                                            
-                                            if let index = goals.firstIndex(where: { $0.id == selectedGoal.id }) {
-                                                goals[index].remainingNumber = String(newRemaining)
-                                                goals[index].isCompleted = newRemaining == 0
-                                                
-                                                let goalCells = getCellsForGoal(selectedGoal)
-                                                let proportion = Double(partialAmount) / Double(Int(selectedGoal.totalNumber) ?? 1)
-                                                let cellsToColor = Int(Double(goalCells) * proportion)
-                                                colorRandomCells(count: cellsToColor, goalId: selectedGoal.id, markAsCompleted: newRemaining == 0)
-                                            }
-                                            partialCompletion = ""
-                                        }
-                                    }
-                                    .foregroundColor(.white)
-                                    .padding(.horizontal, 20)
-                                    .padding(.vertical, 8)
-                                    .background(Color.blue)
-                                    .cornerRadius(8)
-                                }
-                                .padding(.horizontal)
-                            }
-                        }
-                        .padding(.vertical, 5)
-                    } else {
+                VStack {
+                    if selectedImage == nil {
                         PhotosPicker(
                             selection: $selectedItem,
                             matching: .images
@@ -436,6 +220,264 @@ struct ContentView: View {
                             .background(Color.blue)
                             .cornerRadius(8)
                         }
+                        .padding(.vertical)
+                    } else {
+                        ScrollView {
+                            VStack(spacing: 10) {
+                                HStack(spacing: 20) {
+                                    Button(action: {
+                                        saveProject()
+                                    }) {
+                                        Text("Save")
+                                            .foregroundColor(.white)
+                                            .frame(width: UIScreen.main.bounds.width * 0.25, height: 40)
+                                            .background(Color.green)
+                                            .cornerRadius(8)
+                                    }
+                                    
+                                    Button(action: {
+                                        selectedImage = nil
+                                        selectedItem = nil
+                                        goals.removeAll()
+                                        showGrid = false
+                                        savedState = nil
+                                        cells.removeAll()
+                                        coloredCount = 0
+                                        clearInputs()
+                                    }) {
+                                        Text("Delete")
+                                            .foregroundColor(.white)
+                                            .frame(width: 100, height: 40)
+                                            .background(Color.red)
+                                            .cornerRadius(8)
+                                    }
+                                }
+                                .padding(.vertical, 5)
+                                .padding(.top, 1)
+                                
+                                // Добавляем поле для названия проекта
+                                TextField("Project name", text: $projectName)
+                                    .textFieldStyle(RoundedBorderTextFieldStyle())
+                                    .padding(.horizontal)
+                                    .padding(.vertical, 5)
+                                    .multilineTextAlignment(.center)
+                                
+                                ZStack {
+                                    GeometryReader { geometry in
+                                        ZStack {
+                                            if let image = selectedImage {
+                                                image
+                                                    .resizable()
+                                                    .scaledToFill()
+                                                    .frame(width: geometry.size.width, height: geometry.size.height)
+                                                    .clipped()
+                                                    .grayscale(1.0)
+                                            }
+                                            
+                                            if showGrid && selectedImage != nil {
+                                                let dimensions = calculateGridDimensions()
+                                                let width = geometry.size.width / CGFloat(dimensions.columns)
+                                                let height = geometry.size.height / CGFloat(dimensions.rows)
+                                                
+                                                // Цветные клетки поверх черно-белого изображения
+                                                ForEach(0..<cells.count, id: \.self) { index in
+                                                    let row = index / dimensions.columns
+                                                    let col = index % dimensions.columns
+                                                    if cells[index].isColored {
+                                                        if let image = selectedImage {
+                                                            image
+                                                                .resizable()
+                                                                .scaledToFill()
+                                                                .frame(width: geometry.size.width, height: geometry.size.height)
+                                                                .clipped()
+                                                                .mask(
+                                                                    Rectangle()
+                                                                        .frame(width: width, height: height)
+                                                                        .position(
+                                                                            x: width * CGFloat(col) + width/2,
+                                                                            y: height * CGFloat(row) + height/2
+                                                                        )
+                                                                )
+                                                        }
+                                                    }
+                                                }
+                                                
+                                                // Белая сетка только для незакрашенных клеток
+                                                ForEach(0..<cells.count, id: \.self) { index in
+                                                    let row = index / dimensions.columns
+                                                    let col = index % dimensions.columns
+                                                    if !cells[index].isColored {
+                                                        Rectangle()
+                                                            .stroke(Color.white, lineWidth: 1)
+                                                            .frame(width: width, height: height)
+                                                            .position(
+                                                                x: width * CGFloat(col) + width/2,
+                                                                y: height * CGFloat(row) + height/2
+                                                            )
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                .frame(width: UIScreen.main.bounds.width * 0.95)
+                                .frame(height: UIScreen.main.bounds.height * 0.4)
+                                .padding(.horizontal)
+                                
+                                // Добавляем отображение общей суммы
+                                HStack(spacing: 20) {
+                                    Text("Total: \(goals.reduce(0) { $0 + (Int($1.totalNumber) ?? 0) })")
+                                        .font(.headline)
+                                        .foregroundColor(.white)
+                                    
+                                    Text("Remaining: \(goals.reduce(0) { $0 + (Int($1.remainingNumber) ?? 0) })")
+                                        .font(.headline)
+                                        .foregroundColor(.white)
+                                }
+                                .padding(.vertical, 1)
+                                
+                                VStack(spacing: 8) {
+                                    HStack(spacing: 20) {
+                                        Button(action: {
+                                            isEditing ? updateGoal() : addGoal()
+                                            showInputs = true
+                                        }) {
+                                            Text(isEditing ? "Update" : "Add")
+                                                .foregroundColor(.white)
+                                                .frame(width: 100, height: 35)
+                                                .background(Color.blue)
+                                                .cornerRadius(8)
+                                        }
+                                        
+                                        Button(action: {
+                                            if !goals.isEmpty {
+                                                showGrid = true
+                                                showInputs = false
+                                                initializeCells()
+                                            }
+                                        }) {
+                                            HStack {
+                                                Image(systemName: "grid")
+                                                    .font(.system(size: 20))
+                                                Text("Divide Image")
+                                                    .font(.subheadline)
+                                            }
+                                            .foregroundColor(.white)
+                                            .frame(width: 140, height: 35)
+                                            .background(goals.isEmpty ? Color.gray : Color.blue)
+                                            .cornerRadius(8)
+                                        }
+                                        .disabled(goals.isEmpty)
+                                    }
+                                    
+                                    if showInputs {
+                                        TextField("Enter text", text: $inputText)
+                                            .textFieldStyle(RoundedBorderTextFieldStyle())
+                                            .padding(.horizontal)
+                                            .toolbar {
+                                                ToolbarItem(placement: .keyboard) {
+                                                    Button("Done") {
+                                                        hideKeyboard()
+                                                    }
+                                                }
+                                            }
+                                        
+                                        TextField("Enter number", text: $inputNumber)
+                                            .textFieldStyle(RoundedBorderTextFieldStyle())
+                                            .keyboardType(.numberPad)
+                                            .padding(.horizontal)
+                                            .toolbar {
+                                                ToolbarItem(placement: .keyboard) {
+                                                    Button("Done") {
+                                                        hideKeyboard()
+                                                    }
+                                                }
+                                            }
+                                    }
+                                    
+                                    Picker("Goals", selection: $selectedGoalIndex) {
+                                        ForEach(Array(goals.enumerated()), id: \.element.id) { index, goal in
+                                            HStack {
+                                                Image(systemName: "circle.fill")
+                                                    .font(.system(size: 8))
+                                                Text("\(goal.text)")
+                                                    .font(.headline)
+                                                    .strikethrough(goal.isCompleted)
+                                                Text(goal.progress)
+                                                    .font(.headline)
+                                                    .foregroundColor(.gray)
+                                                if !goal.isCompleted {
+                                                    Image(systemName: "pencil")
+                                                        .foregroundColor(.blue)
+                                                }
+                                            }
+                                            .opacity(goal.isCompleted ? 0.6 : 1.0)
+                                            .tag(index)
+                                        }
+                                    }
+                                    .pickerStyle(.wheel)
+                                    .frame(height: UIScreen.main.bounds.height * 0.08)
+                                    .background(Color.white.opacity(0.5))
+                                    .cornerRadius(10)
+                                    .padding(.horizontal)
+                                    
+                                    if let selectedGoal = goals[safe: selectedGoalIndex],
+                                       !selectedGoal.isCompleted {
+                                        HStack(spacing: 15) {
+                                            TextField("Enter completed amount", text: $partialCompletion)
+                                                .textFieldStyle(RoundedBorderTextFieldStyle())
+                                                .keyboardType(.numberPad)
+                                                .padding(.horizontal)
+                                                .frame(width: UIScreen.main.bounds.width * 0.35)
+                                            
+                                            Button("Complete") {
+                                                if let partialAmount = Int(partialCompletion),
+                                                   let remainingAmount = Int(selectedGoal.remainingNumber),
+                                                   partialAmount <= remainingAmount {
+                                                    
+                                                    let newRemaining = remainingAmount - partialAmount
+                                                    
+                                                    if let index = goals.firstIndex(where: { $0.id == selectedGoal.id }) {
+                                                        withAnimation {  // Добавляем анимацию
+                                                            goals[index].remainingNumber = String(newRemaining)
+                                                            goals[index].isCompleted = newRemaining == 0
+                                                            
+                                                            // Вычисляем количество клеток для закрашивания
+                                                            let totalCells = Int(selectedGoal.totalNumber) ?? 0
+                                                            let proportion = Double(partialAmount) / Double(totalCells)
+                                                            let cellsToColor = Int(ceil(Double(totalCells) * proportion))
+                                                            
+                                                            // Обновляем сетку
+                                                            colorRandomCells(
+                                                                count: cellsToColor,
+                                                                goalId: selectedGoal.id,
+                                                                markAsCompleted: newRemaining == 0
+                                                            )
+                                                            
+                                                            // Сбрасываем поле ввода
+                                                            partialCompletion = ""
+                                                            
+                                                            // Принудительно обновляем UI
+                                                            if newRemaining == 0 {
+                                                                selectedGoalIndex = max(0, selectedGoalIndex - 1)
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                            .foregroundColor(.white)
+                                            .padding(.horizontal, 20)
+                                            .padding(.vertical, 8)
+                                            .background(Color.blue)
+                                            .cornerRadius(8)
+                                        }
+                                        .padding(.horizontal)
+                                    }
+                                }
+                                .padding(.vertical, 5)
+                            }
+                        }
+                        .padding(.bottom, keyboardHeight)
                     }
                 }
             }
@@ -485,16 +527,30 @@ struct ContentView: View {
                 showGrid: $showGrid
             )
         }
-        .onChange(of: selectedItem) { newValue in
-            Task {
-                if let data = try? await newValue?.loadTransferable(type: Data.self),
-                   let uiImage = UIImage(data: data) {
-                    selectedImage = Image(uiImage: uiImage)
-                }
-            }
-        }
         .onAppear {
             loadFromStorage()
+            NotificationCenter.default.addObserver(forName: UIResponder.keyboardWillShowNotification, object: nil, queue: .main) { notification in
+                if let keyboardFrame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect {
+                    keyboardHeight = keyboardFrame.height
+                }
+            }
+            
+            NotificationCenter.default.addObserver(forName: UIResponder.keyboardWillHideNotification, object: nil, queue: .main) { _ in
+                keyboardHeight = 0
+            }
+        }
+        .gesture(TapGesture().onEnded {
+            hideKeyboard()
+        })
+        .onChange(of: selectedItem) { newItem in
+            Task {
+                if let data = try? await newItem?.loadTransferable(type: Data.self) {
+                    if let uiImage = UIImage(data: data) {
+                        selectedImage = Image(uiImage: uiImage)
+                        selectedItem = nil
+                    }
+                }
+            }
         }
     }
     
@@ -555,6 +611,10 @@ struct ContentView: View {
         if let url = URL(string: "https://familykorotkey.github.io/splitup-privacy-policy/") {
             UIApplication.shared.open(url)
         }
+    }
+    
+    private func hideKeyboard() {
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
     }
 }
 
